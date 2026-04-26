@@ -1,0 +1,92 @@
+@startuml
+' tools/svg_to_drawio.py の代表的な呼び出し順序を示すシーケンス図です。
+' コマンド実行からSVG解析、Converterによる走査、draw.io XML書き出しまでを時系列で表します。
+title svg_to_drawio.py - シーケンス図
+
+skinparam shadowing false
+
+actor "利用者" as User
+participant "main(argv)\nCLI入口" as Main
+participant "argparse\n引数解析" as Argparse
+participant "convert_file()\n変換入口" as ConvertFile
+participant "ElementTree\nSVG/XML処理" as ET
+participant "Converter\n変換器" as Converter
+participant "Transform\n座標変換" as Transform
+participant "PathParser\npath解析" as PathParser
+participant "補助関数群\nstyle/color/format" as Helpers
+database "出力ファイル\n.drawio" as Output
+
+User -> Main : python tools/svg_to_drawio.py input.svg -o output.drawio --samples N
+Main -> Argparse : 引数定義とparse_args()
+Argparse --> Main : input / output / samples
+Main -> Main : 入力ファイル存在確認
+
+alt 入力ファイルなし
+  Main --> User : error + 終了コード1
+else 入力ファイルあり
+  Main -> ConvertFile : convert_file(input_path, output_path, samples)
+end
+
+ConvertFile -> ET : parse(input_path)
+alt XML解析失敗
+  ET --> ConvertFile : ParseError
+  ConvertFile --> User : error + 終了コード2
+else 読込失敗
+  ET --> ConvertFile : OSError
+  ConvertFile --> User : error + 終了コード1
+else SVG読込成功
+  ET --> ConvertFile : svg_root
+end
+
+ConvertFile -> Helpers : local_tag(svg_root.tag)
+alt rootがsvgではない
+  ConvertFile --> User : error + 終了コード2
+else rootがsvg
+  ConvertFile -> Helpers : parse_viewbox(svg_root)
+  ConvertFile -> Transform : translate(-vb_x, -vb_y)
+  ConvertFile -> Converter : Converter(samples)
+end
+
+ConvertFile -> Converter : index_ids(svg_root)
+Converter -> Converter : id属性をid_indexへ登録
+
+ConvertFile -> Converter : walk(svg_root, base_t, {})
+loop SVGツリーを再帰走査
+  Converter -> Helpers : local_tag(), parse_transform(), parse_style()
+  Converter -> Transform : transform合成とapply()
+  alt rect / circle / ellipse
+    Converter -> Helpers : style_to_drawio_parts()
+    Converter -> Converter : add_vertex()
+  else line / polyline / polygon
+    Converter -> Helpers : style_to_drawio_parts()
+    Converter -> Converter : add_edge()
+  else text
+    Converter -> Helpers : strip_unit(), style_to_drawio_parts()
+    Converter -> Converter : add_vertex(text)
+  else path
+    Converter -> PathParser : parse(d)
+    PathParser --> Converter : subpaths
+    alt 塗りあり複合path
+      Converter -> Helpers : _build_stencil_xml()
+      Helpers -> Helpers : _encode_stencil()
+      Converter -> Converter : add_vertex(shape=stencil)
+    else 線または単純な塗り
+      Converter -> Converter : add_edge()
+    end
+  else use
+    Converter -> Converter : id_indexから参照先取得
+    Converter -> Converter : walk(参照先, use_transform, style)
+  else 未対応要素
+    Converter -> Helpers : warn()
+  end
+end
+
+ConvertFile -> Converter : build_mxfile(page_w, page_h)
+Converter -> ET : mxfile / diagram / mxGraphModel / mxCell を生成
+ET --> ConvertFile : mxfile XML
+ConvertFile -> ET : indent(mxfile)
+ConvertFile -> Output : write(output_path, encoding="utf-8")
+ConvertFile --> Main : 終了コード0
+Main --> User : wrote output.drawio (N cells)
+
+@enduml

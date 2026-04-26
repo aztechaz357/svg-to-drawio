@@ -1,0 +1,90 @@
+@startuml
+' tools/svg_to_drawio_gui.py の構造を、日本語で理解しやすいように整理したクラス図です。
+' このGUIは「画面操作を受けるクラス」と「ログ出力をキューへ渡す補助クラス」で構成されています。
+title svg_to_drawio_gui.py - クラス図
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+
+class "QueueWriter\nログ転送ライター" as QueueWriter {
+  - messages: Queue[tuple[str, str]]
+  + __init__(messages: Queue[tuple[str, str]])
+  + write(text: str): int
+  + flush(): None
+}
+
+note right of QueueWriter
+標準出力(stdout)や標準エラー(stderr)に出た文字を、
+GUIへ直接書かずに messages キューへ渡すための小さな部品です。
+変換処理側は print しているだけでも、GUIのログ欄に表示できます。
+end note
+
+class "SvgToDrawioApp\nGUI本体" as SvgToDrawioApp {
+  - root: Tk
+  - input_var: StringVar
+  - output_var: StringVar
+  - samples_var: IntVar
+  - auto_output_var: BooleanVar
+  - status_var: StringVar
+  - messages: Queue[tuple[str, str]]
+  - worker: Thread | None
+  - log: Text
+  - convert_button: Button
+  + __init__(root: Tk)
+  - _build_ui(): None
+  - _make_log(parent: Frame): Text
+  + choose_input(): None
+  + choose_output(): None
+  + update_default_output(): None
+  - _default_output_path(): Path | None
+  + convert(): None
+  - _convert_worker(input_path: Path, output_path: Path, samples: int): None
+  - _poll_messages(): None
+  + append_log(text: str): None
+  + clear_log(): None
+}
+
+note right of SvgToDrawioApp
+GUI全体を管理する中心クラスです。
+入力ファイル選択、出力先選択、samples指定、変換開始、
+ログ表示、完了/失敗ダイアログ表示を担当します。
+
+重要な点:
+Tkinterの画面更新はメインスレッドで行い、
+重いSVG変換だけを別スレッドに逃がします。
+end note
+
+class "svg_to_drawio.py\n変換本体モジュール" as ConverterModule {
+  + convert_file(input_path: Path, output_path: Path, samples: int): int
+}
+
+note right of ConverterModule
+SVGを読み込み、draw.io形式の .drawio ファイルを書き出す既存処理です。
+GUIは変換ロジックを持たず、この関数を呼び出すだけです。
+end note
+
+class "tkinter / ttk\nGUI部品" as Tkinter {
+  + Tk
+  + filedialog
+  + messagebox
+  + Entry / Button / Label / Text
+}
+
+class "threading.Thread\n変換用ワーカースレッド" as Thread
+class "queue.Queue\nスレッド間メッセージ" as Queue
+
+SvgToDrawioApp *-- Queue : ログ/完了/失敗通知を保持
+SvgToDrawioApp --> QueueWriter : stdout/stderr用に生成
+SvgToDrawioApp --> Thread : 変換処理を別スレッドで開始
+SvgToDrawioApp --> Tkinter : 画面を作成/更新
+SvgToDrawioApp --> ConverterModule : convert_file()を呼び出す
+QueueWriter --> Queue : ("log", text)を投入
+
+note bottom
+全体方針:
+GUI本体は「操作」と「状態表示」に集中し、
+SVG変換の詳細は svg_to_drawio.py に任せています。
+これにより、CLI版の変換処理を壊さずにGUIだけ追加できます。
+end note
+
+@enduml

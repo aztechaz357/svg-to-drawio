@@ -1,0 +1,121 @@
+@startuml
+' tools/svg_to_drawio.py の主要な構造を示すクラス図です。
+' 変換処理は「座標変換」「path解析」「SVG要素からdraw.ioセル生成」の3層で考えると理解しやすいです。
+title svg_to_drawio.py - クラス図
+
+skinparam classAttributeIconSize 0
+skinparam shadowing false
+
+class "Transform\n2Dアフィン変換" as Transform {
+  - a: float
+  - b: float
+  - c: float
+  - d: float
+  - e: float
+  - f: float
+  + identity(): Transform
+  + translate(tx, ty=0): Transform
+  + scale(sx, sy=None): Transform
+  + rotate(deg, cx=0, cy=0): Transform
+  + matrix(a, b, c, d, e, f): Transform
+  + apply(x, y): tuple
+  + __matmul__(other): Transform
+  + scale_factor(): tuple
+  + rotation_deg(): float
+  + is_axis_aligned(eps=1e-6): bool
+}
+
+note right of Transform
+SVGの transform 属性を扱うための座標変換クラスです。
+translate / scale / rotate / matrix を合成し、
+各SVG座標をdraw.io側の座標へ変換します。
+end note
+
+class "PathParser\nSVG path解析" as PathParser {
+  - samples: int
+  + tokenize(d): list
+  + parse(d): list
+  - _sample_cubic(p0, p1, p2, p3): list
+  - _sample_quad(p0, p1, p2): list
+  - _sample_arc(...): list
+}
+
+note right of PathParser
+SVGの <path d=\"...\"> を点列へ変換します。
+ベジェ曲線や円弧は samples の数だけサンプリングし、
+draw.ioで扱いやすい折れ線またはステンシル形状の材料にします。
+end note
+
+class "Converter\nSVG -> draw.io変換器" as Converter {
+  - cells: list
+  - next_id: int
+  - samples: int
+  - path_parser: PathParser
+  - bbox: list
+  - id_index: dict
+  - _use_depth: int
+  - _id(): str
+  - _track(x, y): None
+  + add_vertex(style_str, x, y, w, h, value=\"\"): None
+  + add_edge(style_str, points): None
+  + index_ids(elem): None
+  + walk(elem, transform, parent_style): None
+  + handle_use(elem, transform, style): None
+  + handle_rect(elem, transform, style): None
+  + handle_circle(elem, transform, style): None
+  + handle_ellipse(elem, transform, style): None
+  - _emit_ellipse(cx, cy, rx, ry, transform, style): None
+  + handle_line(elem, transform, style): None
+  + handle_polyline(elem, transform, style, closed): None
+  + handle_text(elem, transform, style): None
+  + handle_path(elem, transform, style): None
+  - _emit_filled_polygon(pts, style): None
+  - _emit_compound_path(subpaths, transform, style): None
+  + build_mxfile(page_w, page_h): Element
+}
+
+note right of Converter
+変換の中心です。
+SVGツリーを再帰的に walk し、rect / circle / text / path などの
+要素ごとに draw.io の mxCell を作ります。
+
+defs/use の参照解決、スタイル継承、bbox管理、
+ページサイズ決定のための情報収集も担当します。
+end note
+
+class "補助関数群" as Helpers {
+  + warn(msg): None
+  + local_tag(tag): str
+  + strip_unit(s): float
+  + fmt(n): str
+  + normalize_color(c): str
+  + parse_transform(s): Transform
+  + parse_style(elem, inherited): dict
+  + style_to_drawio_parts(style, is_text=False): list
+  + _encode_stencil(xml): str
+  + _build_stencil_xml(local_subpaths, bw, bh, style): str
+  + parse_viewbox(svg_root): tuple
+  + convert_file(input_path, output_path, samples): int
+  + main(argv=None): int
+}
+
+class "ElementTree\nXML入出力" as ET
+class "draw.io mxCell / mxGraphModel\n出力XML" as DrawioXml
+
+Converter *-- PathParser : path要素解析に使用
+Converter --> Transform : 座標変換に使用
+Converter --> Helpers : 色/スタイル/数値整形を使用
+Converter --> ET : mxCellを生成
+Helpers --> Transform : transform文字列から生成
+PathParser --> Helpers : 数値トークン化規則を共有
+Helpers --> ET : SVG読込とdraw.io書出し
+ET --> DrawioXml : .drawio XMLを生成
+
+note bottom
+読み方:
+convert_file() が全体の入口です。
+SVGをElementTreeで読み、Converter.walk() がSVG要素をたどり、
+生成された mxCell 群を build_mxfile() で .drawio XML にまとめます。
+end note
+
+@enduml

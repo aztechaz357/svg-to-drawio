@@ -1,0 +1,90 @@
+@startuml
+' tools/svg_to_drawio_gui.py の処理の流れを、日本語で追えるようにしたアクティビティ図です。
+' 利用者の操作、入力チェック、別スレッド変換、ログ反映までを1本の流れで表します。
+title svg_to_drawio_gui.py - アクティビティ図
+
+skinparam shadowing false
+
+start
+:main()を起動する;
+:Tkのルートウィンドウを作成する;
+:SvgToDrawioAppを作成する;
+:入力欄、出力欄、ボタン、ログ欄を配置する;
+:100ms間隔のメッセージ監視を開始する;
+
+repeat
+  :利用者がGUIを操作する;
+  if (入力SVGを選択した?) then (はい)
+    :ファイル選択ダイアログを開く;
+    if (ファイルが選ばれた?) then (はい)
+      :input_varに入力SVGパスを保存する;
+      :出力先の初期値を .drawio に更新する;
+    else (いいえ)
+      :何も変更せずGUIへ戻る;
+    endif
+  elseif (出力先を選択した?) then (はい)
+    :保存先選択ダイアログを開く;
+    if (保存先が選ばれた?) then (はい)
+      :output_varに出力パスを保存する;
+    else (いいえ)
+      :何も変更せずGUIへ戻る;
+    endif
+  elseif (ログ消去を押した?) then (はい)
+    :ログ欄を一時的に編集可能にする;
+    :ログ内容を削除する;
+    :ログ欄を再び編集不可にする;
+  elseif (変換を押した?) then (はい)
+    if (すでに変換中?) then (はい)
+      :二重実行を防ぐため何もしない;
+    else (いいえ)
+      :入力パス、出力パス、samplesを取得する;
+      if (入力ファイルが存在しない?) then (はい)
+        :エラーダイアログを表示する;
+      elseif (拡張子が .svg ではない?) then (はい)
+        :続行するか確認する;
+        if (利用者がキャンセルした?) then (はい)
+          :変換を中止する;
+        else (いいえ)
+          :入力チェックを続ける;
+        endif
+      endif
+      if (samplesが不正?) then (はい)
+        :samplesのエラーダイアログを表示する;
+      else (いいえ)
+        :Convertボタンを無効化する;
+        :状態表示を「Converting...」にする;
+        :変換条件をログに追記する;
+        :変換用ワーカースレッドを開始する;
+        fork
+          :stdout/stderrをQueueWriterへ差し替える;
+          :svg_to_drawio.convert_file()を実行する;
+          if (終了コードが0?) then (はい)
+            :完了メッセージをキューに入れる;
+          else (いいえ)
+            :失敗メッセージをキューに入れる;
+          endif
+        fork again
+          :GUIスレッドがキューを定期監視する;
+          if (ログメッセージ?) then (はい)
+            :ログ欄へ追記する;
+          elseif (完了メッセージ?) then (はい)
+            :ログ欄へ完了内容を追記する;
+            :状態表示を更新する;
+            :Convertボタンを有効化する;
+            :完了ダイアログを表示する;
+          elseif (失敗メッセージ?) then (はい)
+            :ログ欄へ失敗内容を追記する;
+            :状態表示を更新する;
+            :Convertボタンを有効化する;
+            :失敗ダイアログを表示する;
+          endif
+        end fork
+      endif
+    endif
+  endif
+repeat while (GUIが開いている?) is (はい)
+
+:mainloopを終了する;
+stop
+
+@enduml

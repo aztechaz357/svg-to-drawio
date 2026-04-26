@@ -1,0 +1,89 @@
+@startuml
+' tools/svg_to_drawio_gui.py の代表的な実行順序を、日本語で説明するシーケンス図です。
+' 「利用者」「GUIイベントループ」「GUI本体」「変換本体」「キュー」の関係を時系列で示します。
+title svg_to_drawio_gui.py - シーケンス図
+
+skinparam shadowing false
+
+actor "利用者" as User
+participant "Tkイベントループ\nGUIのメイン処理" as Tk
+participant "SvgToDrawioApp\nGUI本体" as App
+participant "filedialog\nファイル選択" as Dialog
+participant "messagebox\n通知/確認" as MessageBox
+participant "threading.Thread\n変換ワーカー" as Thread
+participant "QueueWriter\nログ転送" as Writer
+queue "messages Queue\nスレッド間キュー" as Queue
+participant "svg_to_drawio.py\n変換本体" as Converter
+
+User -> Tk : python tools/svg_to_drawio_gui.py を実行
+Tk -> App : __init__(root)
+App -> App : _build_ui()\n画面部品を作成
+App -> Tk : after(100, _poll_messages)\nキュー監視を予約
+Tk --> User : GUIを表示
+
+User -> App : choose_input()\n入力SVGを選択
+App -> Dialog : askopenfilename()
+Dialog --> App : 選択されたSVGパス
+App -> App : input_var.set(path)
+App -> App : update_default_output()
+App -> App : output_var.set(path.with_suffix(".drawio"))
+
+User -> App : choose_output()\n出力先を選択
+App -> App : _default_output_path()
+App -> Dialog : asksaveasfilename()
+Dialog --> App : 選択された出力パス
+App -> App : output_var.set(path)
+
+User -> App : convert()\n変換ボタンを押す
+App -> App : 実行中ワーカーの有無を確認
+App -> App : input_path, output_path, samplesを作成
+
+alt 入力ファイルが存在しない
+  App -> MessageBox : showerror("Input not found")
+else 拡張子が .svg ではない
+  App -> MessageBox : askyesno("Confirm input")
+  MessageBox --> App : 続行またはキャンセル
+end
+
+alt samplesが不正
+  App -> MessageBox : showerror("Invalid samples")
+else 入力チェック成功
+  App -> App : Convertボタンを無効化
+  App -> App : status_var.set("Converting...")
+  App -> App : append_log(変換条件)
+  App -> Thread : Thread(target=_convert_worker).start()
+  Thread -> App : _convert_worker(input_path, output_path, samples)
+  App -> Writer : stdout用QueueWriterを作成
+  App -> Writer : stderr用QueueWriterを作成
+  App -> Converter : convert_file(input_path, output_path, samples)
+  Converter -> Writer : print/warn出力
+  Writer -> Queue : put(("log", text))
+  Converter --> App : 終了コード
+  alt 終了コード == 0
+    App -> Queue : put(("done", output_path))
+  else 終了コード != 0
+    App -> Queue : put(("error", exit_code))
+  end
+end
+
+loop 100msごと
+  Tk -> App : _poll_messages()
+  App -> Queue : get_nowait()
+  alt ログ
+    App -> App : append_log(text)
+  else 完了
+    App -> App : append_log(text)
+    App -> App : status_var.set(text)
+    App -> App : Convertボタンを有効化
+    App -> MessageBox : showinfo("Conversion complete")
+  else 失敗
+    App -> App : append_log(text)
+    App -> App : status_var.set(text)
+    App -> App : Convertボタンを有効化
+    App -> MessageBox : showerror("Conversion failed")
+  else キューが空
+    App -> Tk : after(100, _poll_messages)
+  end
+end
+
+@enduml

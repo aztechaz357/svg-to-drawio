@@ -1,0 +1,90 @@
+@startuml
+' tools/svg_to_drawio.py の実行フローを示すアクティビティ図です。
+' CLIで指定されたSVGファイルが、どの段階を通って .drawio に変換されるかを追えます。
+title svg_to_drawio.py - アクティビティ図
+
+skinparam shadowing false
+
+start
+:main(argv)を開始する;
+:argparseで input / output / samples を読む;
+if (入力ファイルが存在しない?) then (はい)
+  :エラーをstderrへ出力する;
+  :終了コード1を返す;
+  stop
+else (いいえ)
+  :出力パスを決定する;
+endif
+
+:convert_file(input_path, output_path, samples)を呼ぶ;
+:ElementTreeでSVGを読み込む;
+if (SVGのXML解析に失敗?) then (はい)
+  :解析エラーをstderrへ出力する;
+  :終了コード2を返す;
+  stop
+elseif (ファイルが読めない?) then (はい)
+  :読込エラーをstderrへ出力する;
+  :終了コード1を返す;
+  stop
+endif
+
+if (ルート要素が <svg> ではない?) then (はい)
+  :形式エラーをstderrへ出力する;
+  :終了コード2を返す;
+  stop
+else (いいえ)
+  :viewBoxまたはwidth/heightを読む;
+  :viewBoxの原点を(0,0)へ寄せるTransformを作る;
+endif
+
+:Converterを作成する;
+:SVG内のidをindex_ids()で登録する;
+:walk(svg_root, base_transform, {})でSVGツリーを走査する;
+
+while (SVG要素が残っている?) is (はい)
+  :タグ名、transform、style、表示状態を読む;
+  if (metadata/defs/style等?) then (はい)
+    :変換対象外としてスキップする;
+  elseif (svg/g/a?) then (はい)
+    :子要素へ再帰する;
+  elseif (use?) then (はい)
+    :id参照先を探し、座標をずらして再帰変換する;
+  elseif (rect/circle/ellipse?) then (はい)
+    :図形の座標とサイズを計算する;
+    :draw.io vertex(mxCell)を追加する;
+  elseif (line/polyline/polygon?) then (はい)
+    :点列を作る;
+    :draw.io edge(mxCell)を追加する;
+  elseif (text?) then (はい)
+    :文字列、フォント、配置を読む;
+    :draw.io text vertex(mxCell)を追加する;
+  elseif (path?) then (はい)
+    :PathParserでpathをサブパス点列へ変換する;
+    if (塗りありの複合path?) then (はい)
+      :draw.io stencil用XMLを作る;
+      :shape=stencil(...) のvertexを追加する;
+    elseif (塗りあり?) then (はい)
+      :閉じた点列としてedgeを追加する;
+    else (いいえ)
+      :線としてedgeを追加する;
+    endif
+  else (その他)
+    :未対応要素としてwarningを出す;
+  endif
+endwhile (いいえ)
+
+if (viewBoxに幅高さがある?) then (はい)
+  :viewBoxのサイズをページサイズに使う;
+else (いいえ)
+  :生成済みbboxからページサイズを推定する;
+endif
+
+:build_mxfile(page_w, page_h)でdraw.io XMLを構築する;
+:ElementTree.indent()でXMLを整形する;
+:出力先ディレクトリを作成する;
+:output_pathへ .drawio XMLを書き込む;
+:生成セル数をstdoutへ出力する;
+:終了コード0を返す;
+stop
+
+@enduml
