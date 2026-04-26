@@ -4,8 +4,8 @@ This directory documents two Python tools for converting SVG files into editable
 
 このドキュメントでは、SVGファイルを編集可能なdraw.io形式（`.drawio`）へ変換する2つのPythonツールの使い方を説明します。
 
-- `tools/svg_to_drawio.py`: command-line converter / コマンドライン変換ツール
-- `tools/svg_to_drawio_gui.py`: GUI wrapper for the converter / GUI操作用ツール
+- `svg_to_drawio.py`: command-line converter / コマンドライン変換ツール
+- `svg_to_drawio_gui.py`: GUI wrapper for the converter / GUI操作用ツール
 
 ## Requirements / 必要環境
 
@@ -54,13 +54,13 @@ The converter reads SVG XML and creates draw.io `mxCell` elements. It supports c
 File:
 
 ```text
-tools/svg_to_drawio.py
+svg_to_drawio.py
 ```
 
 Basic usage:
 
 ```powershell
-python tools\svg_to_drawio.py input.svg
+python svg_to_drawio.py input.svg
 ```
 
 This creates:
@@ -74,7 +74,7 @@ input.drawio
 基本的な使い方は次の通りです。
 
 ```powershell
-python tools\svg_to_drawio.py input.svg
+python svg_to_drawio.py input.svg
 ```
 
 この場合、入力ファイルと同じ場所に `input.drawio` が作成されます。
@@ -82,13 +82,13 @@ python tools\svg_to_drawio.py input.svg
 ### Specify Output File / 出力ファイルを指定する
 
 ```powershell
-python tools\svg_to_drawio.py input.svg -o output.drawio
+python svg_to_drawio.py input.svg -o output.drawio
 ```
 
 or:
 
 ```powershell
-python tools\svg_to_drawio.py input.svg --output output.drawio
+python svg_to_drawio.py input.svg --output output.drawio
 ```
 
 日本語:
@@ -96,7 +96,7 @@ python tools\svg_to_drawio.py input.svg --output output.drawio
 出力先を明示したい場合は `-o` または `--output` を使います。
 
 ```powershell
-python tools\svg_to_drawio.py input.svg -o output.drawio
+python svg_to_drawio.py input.svg -o output.drawio
 ```
 
 ### Adjust Curve Sampling / 曲線のサンプリング数を調整する
@@ -104,7 +104,7 @@ python tools\svg_to_drawio.py input.svg -o output.drawio
 SVG paths that contain Bezier curves or arcs are sampled into points. The default value is `16`.
 
 ```powershell
-python tools\svg_to_drawio.py input.svg --samples 32
+python svg_to_drawio.py input.svg --samples 32
 ```
 
 Higher values can make curves smoother, but may create larger `.drawio` files.
@@ -114,7 +114,7 @@ Higher values can make curves smoother, but may create larger `.drawio` files.
 SVGのベジェ曲線や円弧は点列へ近似して変換されます。標準値は `16` です。
 
 ```powershell
-python tools\svg_to_drawio.py input.svg --samples 32
+python svg_to_drawio.py input.svg --samples 32
 ```
 
 値を大きくすると曲線が滑らかになりやすい一方で、`.drawio` ファイルサイズが大きくなる場合があります。
@@ -122,7 +122,7 @@ python tools\svg_to_drawio.py input.svg --samples 32
 ### CLI Help / ヘルプ表示
 
 ```powershell
-python tools\svg_to_drawio.py --help
+python svg_to_drawio.py --help
 ```
 
 ## GUI Tool / GUI版
@@ -130,13 +130,13 @@ python tools\svg_to_drawio.py --help
 File:
 
 ```text
-tools/svg_to_drawio_gui.py
+svg_to_drawio_gui.py
 ```
 
 Start the GUI:
 
 ```powershell
-python tools\svg_to_drawio_gui.py
+python svg_to_drawio_gui.py
 ```
 
 日本語:
@@ -144,7 +144,7 @@ python tools\svg_to_drawio_gui.py
 GUI版は次のコマンドで起動します。
 
 ```powershell
-python tools\svg_to_drawio_gui.py
+python svg_to_drawio_gui.py
 ```
 
 ### GUI Workflow / GUIでの操作手順
@@ -236,7 +236,7 @@ CLI版では `--samples` の値を上げてください。GUI版では `Samples`
 Example:
 
 ```powershell
-python tools\svg_to_drawio.py input.svg --samples 32
+python svg_to_drawio.py input.svg --samples 32
 ```
 
 ## Examples / 使用例
@@ -244,25 +244,25 @@ python tools\svg_to_drawio.py input.svg --samples 32
 CLI:
 
 ```powershell
-python tools\svg_to_drawio.py tools\sample\basic.svg
-python tools\svg_to_drawio.py tools\sample\basic.svg -o tools\sample\basic.drawio
-python tools\svg_to_drawio.py tools\sample\basic.svg --samples 32
+python svg_to_drawio.py sample\basic.svg
+python svg_to_drawio.py sample\basic.svg -o sample\basic.drawio
+python svg_to_drawio.py sample\basic.svg --samples 32
 ```
 
 GUI:
 
 ```powershell
-python tools\svg_to_drawio_gui.py
+python svg_to_drawio_gui.py
 ```
 
 ## Recommended Use / おすすめの使い分け
 
 English:
 
-- Use `tools/svg_to_drawio_gui.py` when converting files manually.
-- Use `tools/svg_to_drawio.py` when scripting, testing, or batch converting.
+- Use `svg_to_drawio_gui.py` when converting files manually.
+- Use `svg_to_drawio.py` when scripting, testing, or batch converting.
 
 日本語:
 
-- 手作業で変換する場合は `tools/svg_to_drawio_gui.py` が便利です。
-- スクリプト化、テスト、まとめて変換する場合は `tools/svg_to_drawio.py` が便利です。
+- 手作業で変換する場合は `svg_to_drawio_gui.py` が便利です。
+- スクリプト化、テスト、まとめて変換する場合は `svg_to_drawio.py` が便利です。
