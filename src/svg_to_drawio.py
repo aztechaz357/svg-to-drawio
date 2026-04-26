@@ -1192,6 +1192,9 @@ class Converter:
             pts.append(pts[0])  # ポリゴンの場合は最初の点を末尾に追加して閉じる
         if closed and self._absorb_arrow_polygon(pts, style):
             return
+        if closed:
+            self._emit_polygon_stencil(pts, style)
+            return
         parts = edge_style_parts(style, use_markers=not closed)
         sparts = style_to_drawio_parts(style)
         if closed:
@@ -1311,14 +1314,36 @@ class Converter:
                 self.add_edge(";".join(parts), tpts)  # 折れ線エッジとして登録する
 
     def _emit_filled_polygon(self, pts, style):
-        # draw.io はネイティブの塗りつぶしポリゴンを持たないため閉じた edge で代替する
         if pts[0] != pts[-1]:
-            pts = pts + [pts[0]]  # 末尾に先頭点を追加してパスを閉じる
-        parts = ["endArrow=none", "html=1"]  # 矢印なしのスタイルを設定する
-        parts.extend(
-            style_to_drawio_parts(style)
-        )  # 塗り・線のすべてのスタイルを追加する
-        self.add_edge(";".join(parts), pts)  # 閉じたエッジとして登録する
+            pts = pts + [pts[0]]
+        self._emit_polygon_stencil(pts, style)
+
+    def _emit_polygon_stencil(self, pts, style):
+        if not pts:
+            return
+        clean_pts = []
+        for pt in pts:
+            if not clean_pts or pt != clean_pts[-1]:
+                clean_pts.append(pt)
+        if len(clean_pts) > 1 and clean_pts[0] == clean_pts[-1]:
+            clean_pts = clean_pts[:-1]
+        if len(clean_pts) < 3:
+            return
+        xs = [p[0] for p in clean_pts]
+        ys = [p[1] for p in clean_pts]
+        bx, by = min(xs), min(ys)
+        bw = max(xs) - bx
+        bh = max(ys) - by
+        if bw <= 0:
+            bw = 1
+        if bh <= 0:
+            bh = 1
+        local_pts = [(px - bx, py - by) for px, py in clean_pts]
+        stencil_xml = _build_stencil_xml([local_pts], bw, bh, style)
+        encoded = _encode_stencil(stencil_xml)
+        parts = [f"shape=stencil({encoded})"]
+        parts.extend(style_to_drawio_parts(style))
+        self.add_vertex(";".join(parts), bx, by, bw, bh)
 
     def _emit_compound_path(self, subpaths, transform, style):
         """複数サブパスを1つの stencil vertex として出力する.
