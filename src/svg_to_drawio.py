@@ -278,6 +278,9 @@ STYLE_KEYS = {
     "opacity",
     "visibility",
     "display",
+    "marker-start",
+    "marker-end",
+    "marker-mid",
 }
 
 
@@ -341,6 +344,42 @@ def style_to_drawio_parts(style, is_text=False):
         except ValueError:
             pass  # 数値変換に失敗した場合は無視する
     return parts  # draw.io スタイルのパーツリストを返す
+
+
+def _has_svg_marker(value) -> bool:
+    if value is None:
+        return False
+    value = str(value).strip().lower()
+    return bool(value and value != "none")
+
+
+def edge_style_parts(style, use_markers=True):
+    parts = ["html=1"]
+    if use_markers and _has_svg_marker(style.get("marker-start")):
+        parts.append("startArrow=classic")
+        parts.append("startFill=1")
+    else:
+        parts.append("startArrow=none")
+    if use_markers and _has_svg_marker(style.get("marker-end")):
+        parts.append("endArrow=classic")
+        parts.append("endFill=1")
+    else:
+        parts.append("endArrow=none")
+    return parts
+
+
+def set_style_value(style_str, key, value):
+    parts = [p for p in style_str.split(";") if p]
+    prefix = f"{key}="
+    replaced = False
+    for i, part in enumerate(parts):
+        if part.startswith(prefix):
+            parts[i] = f"{key}={value}"
+            replaced = True
+            break
+    if not replaced:
+        parts.append(f"{key}={value}")
+    return ";".join(parts)
 
 
 # ----------------------------------------------------------------------------
@@ -860,6 +899,83 @@ class Converter:
                 )  # 各中間点を mxPoint として追加する
         self.cells.append(cell)  # 生成したエッジをリストに追加する
 
+    def _edge_endpoint(self, cell, endpoint):
+        geom = cell.find("mxGeometry")
+        if geom is None:
+            return None
+        point_as = "sourcePoint" if endpoint == "start" else "targetPoint"
+        for point in geom.findall("mxPoint"):
+            if point.get("as") == point_as:
+                return (strip_unit(point.get("x")), strip_unit(point.get("y")))
+        return None
+
+    def _set_edge_arrow(self, cell, endpoint):
+        style_str = cell.get("style", "")
+        if endpoint == "start":
+            style_str = set_style_value(style_str, "startArrow", "classic")
+            style_str = set_style_value(style_str, "startFill", "1")
+        else:
+            style_str = set_style_value(style_str, "endArrow", "classic")
+            style_str = set_style_value(style_str, "endFill", "1")
+        cell.set("style", style_str)
+
+    def _emit_arrow_from_polygon(self, pts, style):
+        cx = sum(x for x, _ in pts) / len(pts)
+        cy = sum(y for _, y in pts) / len(pts)
+        tip = max(pts, key=lambda p: math.hypot(p[0] - cx, p[1] - cy))
+        tail_pts = [p for p in pts if p != tip]
+        if not tail_pts:
+            return False
+        tail = (
+            sum(x for x, _ in tail_pts) / len(tail_pts),
+            sum(y for _, y in tail_pts) / len(tail_pts),
+        )
+        parts = ["html=1", "startArrow=none", "endArrow=classic", "endFill=1"]
+        stroke = normalize_color(style.get("stroke")) or normalize_color(style.get("fill"))
+        if stroke and stroke != "none":
+            parts.append(f"strokeColor={stroke}")
+        sw = style.get("stroke-width")
+        if sw:
+            parts.append(f"strokeWidth={fmt(strip_unit(sw))}")
+        self.add_edge(";".join(parts), [tail, tip])
+        return True
+
+    def _absorb_arrow_polygon(self, pts, style):
+        fill = normalize_color(style.get("fill"))
+        stroke = normalize_color(style.get("stroke"))
+        if fill in (None, "none") or len(pts) not in (3, 4, 5):
+            return False
+        if stroke not in (None, "none", fill):
+            return False
+        unique_pts = []
+        for pt in pts:
+            if not unique_pts or pt != unique_pts[-1]:
+                unique_pts.append(pt)
+        if len(unique_pts) > 1 and unique_pts[0] == unique_pts[-1]:
+            unique_pts = unique_pts[:-1]
+        if len(unique_pts) not in (3, 4):
+            return False
+
+        eps = 2.0
+        best = None
+        for cell in reversed(self.cells):
+            if cell.get("edge") != "1":
+                continue
+            for endpoint in ("end", "start"):
+                edge_pt = self._edge_endpoint(cell, endpoint)
+                if edge_pt is None:
+                    continue
+                for poly_pt in unique_pts:
+                    dist = math.hypot(edge_pt[0] - poly_pt[0], edge_pt[1] - poly_pt[1])
+                    if dist <= eps and (best is None or dist < best[0]):
+                        best = (dist, cell, endpoint)
+            if best is not None:
+                break
+        if best is None:
+            return self._emit_arrow_from_polygon(unique_pts, style)
+        self._set_edge_arrow(best[1], best[2])
+        return True
+
     def index_ids(self, elem):
         eid = elem.get("id")  # 要素の id 属性を取得する
         if eid:
@@ -1056,7 +1172,7 @@ class Converter:
         y2 = strip_unit(elem.get("y2", 0))  # 終点の Y 座標を取得する
         p1 = transform.apply(x1, y1)  # 始点を変換後の座標に変換する
         p2 = transform.apply(x2, y2)  # 終点を変換後の座標に変換する
-        parts = ["endArrow=none", "html=1"]  # 矢印なしの線スタイルを設定する
+        parts = edge_style_parts(style)
         parts.extend(
             p for p in style_to_drawio_parts(style) if not p.startswith("fillColor")
         )  # 線には fillColor を含めない
@@ -1074,7 +1190,9 @@ class Converter:
             return  # 2点未満では線を引けないためスキップする
         if closed:
             pts.append(pts[0])  # ポリゴンの場合は最初の点を末尾に追加して閉じる
-        parts = ["endArrow=none", "html=1"]  # 矢印なしの線スタイルを設定する
+        if closed and self._absorb_arrow_polygon(pts, style):
+            return
+        parts = edge_style_parts(style, use_markers=not closed)
         sparts = style_to_drawio_parts(style)
         if closed:
             parts.extend(
@@ -1184,7 +1302,7 @@ class Converter:
                     tpts, style
                 )  # 塗りありで3点以上なら塗りつぶしポリゴンとして出力する
             else:
-                parts = ["endArrow=none", "html=1"]
+                parts = edge_style_parts(style)
                 parts.extend(
                     p
                     for p in style_to_drawio_parts(style)
